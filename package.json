@@ -1,6 +1,6 @@
 {
 	"name": "n8n-nodes-klussenbeheer",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "n8n community nodes for Klussenbeheer: search and manage jobs, customers and the planning.",
 	"license": "MIT",
 	"homepage": "https://samdesk.nl/klussenbeheer/",
