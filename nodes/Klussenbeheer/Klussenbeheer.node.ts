@@ -1,5 +1,6 @@
 import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 import type {
+	IDataObject,
 	IExecuteFunctions,
 	INodeExecutionData,
 	INodeType,
@@ -785,7 +786,15 @@ export class Klussenbeheer implements INodeType {
 				}
 
 				const payload = await klussenbeheerApiRequest.call(this, toolName, toolArguments);
-				returnData.push({ json: payload, pairedItem: { item: itemIndex } });
+				const list = (payload as IDataObject).items;
+				if (operation === 'search' && Array.isArray(list)) {
+					// One n8n item per customer or job, so the next node can loop over them.
+					for (const entry of list) {
+						returnData.push({ json: entry as IDataObject, pairedItem: { item: itemIndex } });
+					}
+				} else {
+					returnData.push({ json: payload, pairedItem: { item: itemIndex } });
+				}
 			} catch (error) {
 				if (this.continueOnFail()) {
 					returnData.push({ json: { error: (error as Error).message }, pairedItem: { item: itemIndex } });
