@@ -14,7 +14,7 @@ In short: in n8n, go to **Settings → Community Nodes**, select **Install**, an
 
 ## Credentials
 
-1. Log in to Klussenbeheer and open [samdesk.nl/account/mcp/tokens/](https://samdesk.nl/account/mcp/tokens/).
+1. Log in to Klussenbeheer and open your account page at [samdesk.nl/app/account/profile/](https://samdesk.nl/app/account/profile/) (section **AI integrations**).
 2. Create a new API token. Each token is tied to one organization.
 3. Copy the token (you will only see it once) and paste it into the **Klussenbeheer API** credential in n8n.
 
@@ -52,7 +52,7 @@ Sending emails to customers and sending quotes are intentionally not available i
 
 ## Rate limit
 
-The API allows **120 tool calls per 5 minutes** per token. If you exceed the limit, the node throws an error with a retry hint.
+The API allows **120 requests per 5 minutes** per token. If you exceed the limit, the node throws an error with a retry hint.
 
 ## Compatibility
 

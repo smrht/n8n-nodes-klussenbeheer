@@ -8,7 +8,7 @@ import type {
 	INodeProperties,
 } from 'n8n-workflow';
 
-import { klussenbeheerApiRequest, mapProvidedFields } from './GenericFunctions';
+import { buildQuery, klussenbeheerApiRequest, mapProvidedFields } from './GenericFunctions';
 
 const STAGE_OPTIONS = [
 	{ name: 'New', value: 'new_lead' },
@@ -103,6 +103,12 @@ const CUSTOMER_FIELD_MAP: Record<string, string> = {
 	business: 'zakelijk',
 	kvkNumber: 'kvk_nummer',
 };
+
+interface RestCall {
+	method: 'GET' | 'POST' | 'PATCH';
+	endpoint: string;
+	body?: Record<string, unknown>;
+}
 
 export class Klussenbeheer implements INodeType {
 	description: INodeTypeDescription = {
@@ -632,149 +638,12 @@ export class Klussenbeheer implements INodeType {
 				const resource = this.getNodeParameter('resource', itemIndex) as string;
 				const operation = this.getNodeParameter('operation', itemIndex) as string;
 
-				let toolName: string;
-				let toolArguments: Record<string, unknown> = {};
+				let request: RestCall;
 
 				if (resource === 'job') {
-					switch (operation) {
-						case 'search': {
-							toolName = 'zoek_klussen';
-							const additionalFields = this.getNodeParameter(
-								'additionalFields',
-								itemIndex,
-								{},
-							) as Record<string, unknown>;
-							toolArguments = mapProvidedFields(additionalFields, {
-								searchTerm: 'zoekterm',
-								stage: 'fase',
-								maxResults: 'limiet',
-							});
-							break;
-						}
-						case 'get': {
-							toolName = 'klus_detail';
-							toolArguments = { klus_id: this.getNodeParameter('jobId', itemIndex) };
-							break;
-						}
-						case 'create': {
-							toolName = 'klus_aanmaken';
-							const additionalFields = this.getNodeParameter(
-								'additionalFields',
-								itemIndex,
-								{},
-							) as Record<string, unknown>;
-							toolArguments = mapProvidedFields(additionalFields, {
-								customerName: 'naam',
-								phone: 'telefoon',
-								email: 'email',
-								jobType: 'klus_type',
-								address: 'adres',
-								description: 'omschrijving',
-								nextAction: 'volgende_actie',
-								postalCode: 'postcode',
-								houseNumber: 'huisnummer',
-							});
-							break;
-						}
-						case 'update': {
-							toolName = 'klus_bijwerken';
-							const additionalFields = this.getNodeParameter(
-								'additionalFields',
-								itemIndex,
-								{},
-							) as Record<string, unknown>;
-							toolArguments = {
-								klus_id: this.getNodeParameter('jobId', itemIndex),
-								...mapProvidedFields(additionalFields, {
-									address: 'adres',
-									postalCode: 'postcode',
-									houseNumber: 'huisnummer',
-									jobType: 'klus_type',
-									description: 'omschrijving',
-									nextAction: 'volgende_actie',
-									estimatedValue: 'geschatte_waarde',
-								}),
-							};
-							break;
-						}
-						case 'changeStage': {
-							toolName = 'fase_wijzigen';
-							const additionalFields = this.getNodeParameter(
-								'additionalFields',
-								itemIndex,
-								{},
-							) as Record<string, unknown>;
-							toolArguments = {
-								klus_id: this.getNodeParameter('jobId', itemIndex),
-								fase: this.getNodeParameter('stage', itemIndex),
-								...mapProvidedFields(additionalFields, { lostReason: 'verloren_reden' }),
-							};
-							break;
-						}
-						case 'schedule': {
-							toolName = 'klus_inplannen';
-							const additionalFields = this.getNodeParameter(
-								'additionalFields',
-								itemIndex,
-								{},
-							) as Record<string, unknown>;
-							toolArguments = {
-								klus_id: this.getNodeParameter('jobId', itemIndex),
-								start: this.getNodeParameter('start', itemIndex),
-								...mapProvidedFields(additionalFields, { end: 'einde' }),
-							};
-							break;
-						}
-						case 'addNote': {
-							toolName = 'notitie_toevoegen';
-							toolArguments = {
-								klus_id: this.getNodeParameter('jobId', itemIndex),
-								tekst: this.getNodeParameter('note', itemIndex),
-							};
-							break;
-						}
-						default:
-							throw new NodeOperationError(
-								this.getNode(),
-								`Unknown job operation: ${operation}`,
-							);
-					}
+					request = buildJobRequest(this, operation, itemIndex);
 				} else if (resource === 'customer') {
-					switch (operation) {
-						case 'search': {
-							toolName = 'zoek_klanten';
-							toolArguments = { zoekterm: this.getNodeParameter('searchTerm', itemIndex) };
-							break;
-						}
-						case 'create': {
-							toolName = 'klant_toevoegen';
-							const additionalFields = this.getNodeParameter(
-								'additionalFields',
-								itemIndex,
-								{},
-							) as Record<string, unknown>;
-							toolArguments = mapProvidedFields(additionalFields, CUSTOMER_FIELD_MAP);
-							break;
-						}
-						case 'update': {
-							toolName = 'klant_bijwerken';
-							const additionalFields = this.getNodeParameter(
-								'additionalFields',
-								itemIndex,
-								{},
-							) as Record<string, unknown>;
-							toolArguments = {
-								klant_id: this.getNodeParameter('customerId', itemIndex),
-								...mapProvidedFields(additionalFields, CUSTOMER_FIELD_MAP),
-							};
-							break;
-						}
-						default:
-							throw new NodeOperationError(
-								this.getNode(),
-								`Unknown customer operation: ${operation}`,
-							);
-					}
+					request = buildCustomerRequest(this, operation, itemIndex);
 				} else {
 					if (operation !== 'get') {
 						throw new NodeOperationError(
@@ -782,10 +651,15 @@ export class Klussenbeheer implements INodeType {
 							`Unknown planning operation: ${operation}`,
 						);
 					}
-					toolName = 'planning';
+					request = { method: 'GET', endpoint: '/planning' };
 				}
 
-				const payload = await klussenbeheerApiRequest.call(this, toolName, toolArguments);
+				const payload = await klussenbeheerApiRequest.call(
+					this,
+					request.method,
+					request.endpoint,
+					request.body,
+				);
 				const list = (payload as IDataObject).items;
 				if (operation === 'search' && Array.isArray(list)) {
 					// One n8n item per customer or job, so the next node can loop over them.
@@ -809,3 +683,160 @@ export class Klussenbeheer implements INodeType {
 		return [returnData];
 	}
 }
+
+function buildJobRequest(
+	context: IExecuteFunctions,
+	operation: string,
+	itemIndex: number,
+): RestCall {
+	const jobId = () => context.getNodeParameter('jobId', itemIndex) as number;
+
+	switch (operation) {
+			case 'search': {
+				const additionalFields = context.getNodeParameter(
+					'additionalFields',
+					itemIndex,
+					{},
+				) as Record<string, unknown>;
+				const fields = mapProvidedFields(additionalFields, {
+					searchTerm: 'zoekterm',
+					stage: 'fase',
+					maxResults: 'limiet',
+				});
+				return {
+					method: 'GET',
+					endpoint: `/jobs${buildQuery(fields)}`,
+				};
+			}
+			case 'get':
+				return { method: 'GET', endpoint: `/jobs/${jobId()}` };
+			case 'create': {
+				const additionalFields = context.getNodeParameter(
+					'additionalFields',
+					itemIndex,
+					{},
+				) as Record<string, unknown>;
+				return {
+					method: 'POST',
+					endpoint: '/jobs',
+					body: mapProvidedFields(additionalFields, {
+						customerName: 'naam',
+						phone: 'telefoon',
+						email: 'email',
+						jobType: 'klus_type',
+						address: 'adres',
+						description: 'omschrijving',
+						nextAction: 'volgende_actie',
+						postalCode: 'postcode',
+						houseNumber: 'huisnummer',
+					}),
+				};
+			}
+			case 'update': {
+				const additionalFields = context.getNodeParameter(
+					'additionalFields',
+					itemIndex,
+					{},
+				) as Record<string, unknown>;
+				return {
+					method: 'PATCH',
+					endpoint: `/jobs/${jobId()}`,
+					body: mapProvidedFields(additionalFields, {
+						address: 'adres',
+						postalCode: 'postcode',
+						houseNumber: 'huisnummer',
+						jobType: 'klus_type',
+						description: 'omschrijving',
+						nextAction: 'volgende_actie',
+						estimatedValue: 'geschatte_waarde',
+					}),
+				};
+			}
+			case 'changeStage': {
+				const stage = context.getNodeParameter('stage', itemIndex) as string;
+				const body: Record<string, unknown> = { fase: stage };
+				if (stage === 'lost') {
+					// lostReason is its own typed parameter, shown only for stage "lost".
+					const lostReason = context.getNodeParameter('lostReason', itemIndex, '') as string;
+					if (lostReason) {
+						body.verloren_reden = lostReason;
+					}
+				}
+				return {
+					method: 'POST',
+					endpoint: `/jobs/${jobId()}/stage`,
+					body,
+				};
+			}
+			case 'schedule': {
+				const additionalFields = context.getNodeParameter(
+					'additionalFields',
+					itemIndex,
+					{},
+				) as Record<string, unknown>;
+				const body: Record<string, unknown> = {
+					start: context.getNodeParameter('start', itemIndex),
+					...mapProvidedFields(additionalFields, { end: 'einde' }),
+				};
+				return {
+					method: 'POST',
+					endpoint: `/jobs/${jobId()}/schedule`,
+					body,
+				};
+			}
+			case 'addNote':
+				return {
+					method: 'POST',
+					endpoint: `/jobs/${jobId()}/notes`,
+					body: { tekst: context.getNodeParameter('note', itemIndex) },
+				};
+			default:
+				throw new NodeOperationError(context.getNode(), `Unknown job operation: ${operation}`);
+		}
+	}
+
+function buildCustomerRequest(
+	context: IExecuteFunctions,
+	operation: string,
+	itemIndex: number,
+): RestCall {
+	switch (operation) {
+			case 'search': {
+				const searchTerm = context.getNodeParameter('searchTerm', itemIndex) as string;
+				return {
+					method: 'GET',
+					endpoint: `/customers${buildQuery({ zoekterm: searchTerm })}`,
+				};
+			}
+			case 'create': {
+				const additionalFields = context.getNodeParameter(
+					'additionalFields',
+					itemIndex,
+					{},
+				) as Record<string, unknown>;
+				return {
+					method: 'POST',
+					endpoint: '/customers',
+					body: mapProvidedFields(additionalFields, CUSTOMER_FIELD_MAP),
+				};
+			}
+			case 'update': {
+				const customerId = context.getNodeParameter('customerId', itemIndex) as number;
+				const additionalFields = context.getNodeParameter(
+					'additionalFields',
+					itemIndex,
+					{},
+				) as Record<string, unknown>;
+				return {
+					method: 'PATCH',
+					endpoint: `/customers/${customerId}`,
+					body: mapProvidedFields(additionalFields, CUSTOMER_FIELD_MAP),
+				};
+			}
+			default:
+				throw new NodeOperationError(
+					context.getNode(),
+					`Unknown customer operation: ${operation}`,
+				);
+		}
+	}

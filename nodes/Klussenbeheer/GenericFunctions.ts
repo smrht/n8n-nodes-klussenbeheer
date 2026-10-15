@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto';
-
 import { NodeApiError } from 'n8n-workflow';
 import type {
 	IDataObject,
@@ -7,9 +5,14 @@ import type {
 	IHookFunctions,
 	ILoadOptionsFunctions,
 	IPollFunctions,
+	IHttpRequestMethods,
+	IHttpRequestOptions,
+	JsonObject,
 } from 'n8n-workflow';
 
 export const BASE_URL = 'https://samdesk.nl';
+
+export const API_BASE_PATH = '/api/v1/klussenbeheer';
 
 type ApiContext =
 	| IExecuteFunctions
@@ -21,71 +24,95 @@ interface KlussenbeheerCredentials {
 	token: string;
 }
 
-interface JsonRpcResponse {
-	error?: { message?: string };
-	result?: {
-		isError?: boolean;
-		content?: Array<{ type?: string; text?: string }>;
-	};
+interface FullResponse {
+	statusCode?: number;
+	body?: unknown;
+	data?: unknown;
 }
 
 /**
- * Calls one tool on the Klussenbeheer MCP endpoint (stateless JSON-RPC 2.0)
- * and returns the parsed JSON payload of the tool result.
+ * Performs one REST call against the Klussenbeheer API and returns the
+ * parsed JSON response.
  */
 export async function klussenbeheerApiRequest(
 	this: ApiContext,
-	toolName: string,
-	toolArguments: Record<string, unknown> = {},
+	method: IHttpRequestMethods,
+	endpoint: string,
+	body?: Record<string, unknown>,
 ): Promise<IDataObject> {
 	const { token } = (await this.getCredentials('klussenbeheerApi')) as KlussenbeheerCredentials;
 
-	const response = (await this.helpers.httpRequestWithAuthentication.call(
-		this,
-		'klussenbeheerApi',
-		{
-			method: 'POST',
-			url: `${BASE_URL}/mcp/${token}/`,
-			headers: {
-				'Content-Type': 'application/json',
-				Accept: 'application/json, text/event-stream',
-			},
-			body: {
-				jsonrpc: '2.0',
-				id: randomUUID(),
-				method: 'tools/call',
-				params: { name: toolName, arguments: toolArguments },
-			},
-			json: true,
+	const options: IHttpRequestOptions = {
+		method,
+		url: `${BASE_URL}${API_BASE_PATH}${endpoint}`,
+		headers: {
+			Accept: 'application/json',
+			Authorization: `Bearer ${token}`,
 		},
-	)) as JsonRpcResponse;
-
-	if (response.error) {
-		throw new NodeApiError(this.getNode(), {
-			message: response.error.message ?? 'The request to Klussenbeheer failed.',
-		});
+		json: true,
+		returnFullResponse: true,
+		ignoreHttpStatusErrors: true,
+	};
+	if (body !== undefined) {
+		options.body = body;
 	}
 
-	const result = response.result ?? {};
-	const text = (result.content ?? []).find((entry) => entry.type === 'text')?.text ?? '{}';
-	let payload: IDataObject;
+	let response: FullResponse;
 	try {
-		payload = JSON.parse(text) as IDataObject;
-	} catch {
-		payload = { message: text };
+		response = (await this.helpers.httpRequestWithAuthentication.call(
+			this,
+			'klussenbeheerApi',
+			options,
+		)) as FullResponse;
+	} catch (error) {
+		throw new NodeApiError(this.getNode(), error as JsonObject);
 	}
-	if (result.isError) {
+
+	const statusCode =
+		typeof response?.statusCode === 'number' ? response.statusCode : 200;
+	let payload: IDataObject;
+	const rawBody = response?.body ?? response?.data;
+	if (typeof rawBody === 'string') {
+		try {
+			payload = JSON.parse(rawBody) as IDataObject;
+		} catch {
+			payload = { message: rawBody };
+		}
+	} else {
+		payload = (rawBody ?? {}) as IDataObject;
+	}
+
+	if (statusCode >= 400) {
+		const detail = payload.detail ?? payload.message;
 		const message =
-			payload.error ?? payload.message ?? 'The operation failed in Klussenbeheer.';
-		throw new NodeApiError(this.getNode(), { message: String(message) });
+			typeof detail === 'string' && detail
+				? detail
+				: `The request to Klussenbeheer failed (HTTP ${statusCode}).`;
+		throw new NodeApiError(this.getNode(), { message });
 	}
+
 	return payload;
+}
+
+/**
+ * Builds a query string from an object, skipping empty values.
+ */
+export function buildQuery(params: Record<string, unknown>): string {
+	const search = new URLSearchParams();
+	for (const [key, value] of Object.entries(params)) {
+		if (value === undefined || value === null || value === '') {
+			continue;
+		}
+		search.set(key, String(value));
+	}
+	const query = search.toString();
+	return query ? `?${query}` : '';
 }
 
 /**
  * Copies the provided (non-empty) values from a source object into a new
  * object, renaming the keys from the node parameter names to the API
- * argument names.
+ * field names.
  */
 export function mapProvidedFields(
 	source: Record<string, unknown>,

@@ -59,9 +59,11 @@ export class KlussenbeheerTrigger implements INodeType {
 		const knownIds = staticData.knownJobIds;
 		const previousIds: string[] | null = Array.isArray(knownIds) ? knownIds.map(String) : null;
 
-		const payload = await klussenbeheerApiRequest.call(this, 'zoek_klussen', {
-			limiet: SEARCH_LIMIT,
-		});
+		const payload = await klussenbeheerApiRequest.call(
+			this,
+			'GET',
+			`/jobs?limiet=${SEARCH_LIMIT}`,
+		);
 		const jobs = Array.isArray(payload.items)
 			? (payload.items as IDataObject[])
 			: [];

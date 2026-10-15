@@ -1,6 +1,6 @@
 {
 	"name": "n8n-nodes-klussenbeheer",
-	"version": "0.1.2",
+	"version": "0.2.0",
 	"description": "n8n community nodes for Klussenbeheer: search and manage jobs, customers and the planning.",
 	"license": "MIT",
 	"homepage": "https://samdesk.nl/klussenbeheer/",
@@ -27,7 +27,8 @@
 		"lint": "n8n-node lint",
 		"lint:fix": "n8n-node lint --fix",
 		"release": "n8n-node release",
-		"prepublishOnly": "n8n-node prerelease"
+		"prepublishOnly": "n8n-node prerelease",
+		"test": "vitest run"
 	},
 	"files": [
 		"dist"
@@ -48,7 +49,8 @@
 		"eslint": "9.32.0",
 		"prettier": "3.6.2",
 		"release-it": "^21.1.0",
-		"typescript": "5.9.2"
+		"typescript": "5.9.2",
+		"vitest": "^5.0.4"
 	},
 	"peerDependencies": {
 		"n8n-workflow": "*"

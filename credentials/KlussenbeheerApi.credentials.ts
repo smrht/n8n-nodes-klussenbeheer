@@ -21,25 +21,18 @@ export class KlussenbeheerApi implements ICredentialType {
 			default: '',
 			noDataExpression: true,
 			description:
-				'The MCP token for your Klussenbeheer organization. Create one at https://samdesk.nl/account/mcp/tokens/.',
-			hint: 'Create the token in Klussenbeheer under account/mcp/tokens/. Each token is tied to one organization.',
+				'The API token for your Klussenbeheer organization. Create one in Klussenbeheer under Account, section AI integrations.',
+			hint: 'Each token is tied to one organization.',
 		},
 	];
 
 	test: ICredentialTestRequest = {
 		request: {
-			method: 'POST',
-			url: '=https://samdesk.nl/mcp/{{ $credentials.token }}/',
+			method: 'GET',
+			url: '=https://samdesk.nl/api/v1/klussenbeheer/me',
 			headers: {
-				'Content-Type': 'application/json',
+				Authorization: '=Bearer {{ $credentials.token }}',
 			},
-			body: {
-				jsonrpc: '2.0',
-				id: 1,
-				method: 'tools/list',
-				params: {},
-			},
-			json: true,
 		},
 	};
 }
